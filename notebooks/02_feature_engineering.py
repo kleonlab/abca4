@@ -420,6 +420,59 @@ def __(mo, pd, df_scored_step3):
 
 
 @app.cell
+def __(mo, pd, logger, FEATURES_DIR):
+    """
+    ## Step 3.5: Domain Annotation (UniProt-backed protein domains)
+
+    Map variants to ABCA4 protein domains for spatial localization.
+    Uses UniProt coordinates + protein position extraction from HGVS.
+    """
+    mo.md(__doc__)
+    
+    # Import domain mapper
+    try:
+        from src.features.compute_domains import DomainMapper
+        
+        # Check if we have cached domain annotations
+        domains_path = FEATURES_DIR / "variants_with_domains.parquet"
+        if not domains_path.exists():
+            logger.info("Computing domain annotations from UniProt coordinates...")
+            mapper = DomainMapper(features_dir=FEATURES_DIR)
+            mapper.run()
+        
+        # Load domain annotations
+        df_domains = pd.read_parquet(domains_path)
+        logger.info(f"Loaded domain annotations for {len(df_domains)} variants")
+        
+        # Show distribution
+        domain_dist = df_domains['domain'].value_counts()
+        mo.md(f"""
+        ### Domain Distribution
+        
+        **ABCA4 protein structure** (from UniProt P78363):
+        - **NBD1** (87-651 aa): Nucleotide binding domain 1
+        - **TMD** (652-1350 aa): Transmembrane domains 1-12
+        - **NBD2** (1351-2000 aa): Nucleotide binding domain 2
+        - **CTD** (2001-2273 aa): C-terminal domain
+        
+        **Coverage:**
+        """)
+        
+        domain_summary = pd.DataFrame({
+            'Domain': domain_dist.index,
+            'Variants': domain_dist.values,
+            'Percentage': (100 * domain_dist.values / len(df_domains)).round(1)
+        })
+        mo.ui.table(domain_summary)
+        
+    except Exception as e:
+        logger.error(f"Domain computation failed: {e}")
+        df_domains = pd.DataFrame()
+    
+    return df_domains
+
+
+@app.cell
 def __(mo):
     """
     ## Step 4: Impact Score Construction
@@ -716,28 +769,59 @@ def __(mo, threshold_factor):
 
 @app.cell
 def __(
-    pd, np, logger,
-    df_impact, clustering_widget
+    pd, np, logger, df_impact, df_domains, clustering_widget
 ):
-    """Assign cluster membership."""
+    """Apply domain-aware scoring boost, then assign cluster membership."""
     df_clusters = df_impact.copy()
+    
+    # Add domain info if available
+    if not df_domains.empty and 'domain' in df_domains.columns:
+        df_clusters['domain'] = df_domains['domain'].values
+        
+        # Apply domain-aware boosting (critical domains get score bonus)
+        domain_boost = {
+            'NBD1': 1.15,       # +15% - nucleotide binding, critical
+            'NBD2': 1.15,       # +15% - nucleotide binding, critical
+            'TMD': 1.05,        # +5% - transmembrane, important
+            'CTD': 1.0,         # No boost
+            'intronic': 1.0,    # No boost
+            'utr': 0.95,        # Slight penalty
+            'other': 1.0,       # No boost
+            'unknown': 1.0,     # No boost
+        }
+        
+        original_scores = df_clusters['model_score'].copy()
+        df_clusters['model_score'] = df_clusters.apply(
+            lambda row: row['model_score'] * domain_boost.get(row['domain'], 1.0),
+            axis=1
+        ).clip(0, 1)
+        
+        logger.info("Applied domain-aware scoring boost (NBD1/NBD2: +15%, TMD: +5%)")
+        logger.info(f"Score range: [{original_scores.min():.4f}, {original_scores.max():.4f}] → "
+                   f"[{df_clusters['model_score'].min():.4f}, {df_clusters['model_score'].max():.4f}]")
+    else:
+        logger.warning("Domain info not available; skipping domain-aware boosting")
+        df_clusters['domain'] = 'unknown'
 
+    # Assign clusters by mechanism (consequence-based, primary clustering)
     if clustering_widget.value == "domain":
-        if "domain" in df_clusters.columns:
-            df_clusters["cluster"] = df_clusters["domain"].fillna("unknown")
+        # Fall back to mechanism clustering as primary
+        if "consequence" in df_clusters.columns:
+            df_clusters["cluster"] = df_clusters["consequence"].fillna("other")
         else:
-            df_clusters["cluster"] = "unknown"
-        logger.info(f"Domain-based clustering: {df_clusters['cluster'].nunique()} clusters")
+            df_clusters["cluster"] = "other"
+        logger.info(f"Primary clustering by consequence: {df_clusters['cluster'].nunique()} clusters")
 
     elif clustering_widget.value == "consequence":
         if "consequence" in df_clusters.columns:
-            df_clusters["cluster"] = df_clusters["consequence"].fillna("unknown")
+            df_clusters["cluster"] = df_clusters["consequence"].fillna("other")
         else:
-            df_clusters["cluster"] = "unknown"
+            df_clusters["cluster"] = "other"
         logger.info(f"Consequence-based clustering: {df_clusters['cluster'].nunique()} clusters")
 
     else:
-        df_clusters["cluster"] = df_clusters.get("domain", "unknown").fillna("unknown")
+        # Default to consequence
+        df_clusters["cluster"] = df_clusters.get("consequence", "other").fillna("other")
 
     return df_clusters
 
