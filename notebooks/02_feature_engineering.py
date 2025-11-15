@@ -65,8 +65,9 @@ def __(mo):
 
 @app.cell
 def __(
-    pd, np, logger,
-    df_annotated, CAMPAIGN_ROOT, ANNOTATIONS_DIR, FEATURES_DIR
+    sys, pd, np, logger,
+    df_annotated, CAMPAIGN_ROOT, ANNOTATIONS_DIR, FEATURES_DIR,
+    List, Dict
 ):
     """
     Load AlphaMissense, SpliceAI, conservation, and regulatory features
@@ -178,6 +179,30 @@ def __(
         if not df_features.empty and join_key in df_features.columns:
             df_scored_step3 = df_scored_step3.merge(df_features, on=join_key, how='left', suffixes=('', '_feature'))
     
+    # Store column origin metadata for transparency
+    df_scored_step3.attrs['feature_sources_metadata'] = {
+        'missense': {
+            'file': str(FEATURES_DIR / "missense_features.parquet"),
+            'columns': ['alphamissense_score', 'alphamissense_pathogenic_category', 'esm_pld_score'],
+            'description': 'AlphaMissense and ESM protein language model predictions'
+        },
+        'splice': {
+            'file': str(FEATURES_DIR / "splice_features.parquet"),
+            'columns': ['spliceai_max_score', 'spliceai_ds_ag', 'spliceai_ds_al', 'spliceai_ds_dg', 'spliceai_ds_dl'],
+            'description': 'SpliceAI splice site disruption scores'
+        },
+        'conservation': {
+            'file': str(FEATURES_DIR / "conservation_features.parquet"),
+            'columns': ['phylop_score', 'phastcons_score'],
+            'description': 'Phylogenetic conservation (phyloP and phastCons)'
+        },
+        'regulatory': {
+            'file': str(FEATURES_DIR / "regulatory_features.parquet"),
+            'columns': ['domain', 'domain_name', 'gnomad_af_exome', 'gnomad_ac_exome'],
+            'description': 'Protein domains and gnomAD population allele frequencies'
+        }
+    }
+    
     # Add LoF prior based on consequence
     _consequence_lof = {
         "frameshift_variant": 0.95,
@@ -208,7 +233,41 @@ def __(
     _features_raw_path = FEATURES_DIR / "variants_features_raw.parquet"
     df_scored_step3.to_parquet(_features_raw_path)
     logger.info(f"Wrote raw features to {_features_raw_path}")
-    return _features_raw_path
+    return _features_raw_path, FEATURES_DIR
+
+
+@app.cell
+def __(mo, pd, df_scored_step3, _features_raw_path):
+    """Display raw features output path and schema."""
+    mo.md(f"""
+    ### ✅ Raw Features Saved
+    
+    **Output Path:** `{_features_raw_path}`
+    
+    **Dataset Shape:** {df_scored_step3.shape[0]} variants × {df_scored_step3.shape[1]} columns
+    """)
+    
+    # Display schema/dtypes
+    mo.md("**Column Data Types:**")
+    schema_df = pd.DataFrame({
+        'Column': df_scored_step3.columns,
+        'Data Type': df_scored_step3.dtypes.astype(str)
+    }).reset_index(drop=True)
+    mo.ui.table(schema_df, show_data_types=False)
+    
+    # Show sample rows
+    mo.md("**Sample Data (first 3 rows):**")
+    mo.ui.table(df_scored_step3.head(3), show_data_types=True)
+
+
+@app.cell
+def __(mo, pd, df_scored_step3):
+    """Display feature provenance data dictionary."""
+    mo.md("""
+    ### Feature Provenance: Data Dictionary
+    
+    Below is a complete map of all feature sources and their contributions to the merged dataset.
+    """)
 
 
 @app.cell
@@ -220,8 +279,35 @@ def __(mo, pd, df_scored_step3):
         table = pd.DataFrame()
     else:
         table = pd.DataFrame(logs)
-    mo.md("### Feature Source Status")
+    mo.md("#### Loading & Cache Status")
     mo.ui.table(table)
+
+
+@app.cell
+def __(mo, pd, df_scored_step3):
+    """Display detailed feature dictionary with columns and meanings."""
+    metadata = df_scored_step3.attrs.get('feature_sources_metadata', {})
+    
+    if metadata:
+        # Build a detailed dictionary view
+        dict_rows = []
+        for source_name, source_info in metadata.items():
+            for col in source_info['columns']:
+                dict_rows.append({
+                    'Source': source_name.capitalize(),
+                    'Column Name': col,
+                    'File': source_info['file'].split('/')[-1],
+                    'Description': source_info['description']
+                })
+        
+        if dict_rows:
+            dict_df = pd.DataFrame(dict_rows)
+            mo.md("#### Feature Column Reference")
+            mo.ui.table(dict_df, show_data_types=False)
+        else:
+            mo.md("No feature metadata available.")
+    else:
+        mo.md("No feature metadata available.")
 
 
 @app.cell
@@ -350,6 +436,7 @@ def __(
     """Compute impact scores using hand-mix or logistic regression."""
     
     df_impact = df_scored_step3.copy()
+    scoring_fallback_used = False
 
     if scoring_mode_widget.value == "hand-mix" and alpha_wgt is not None:
         # Normalize scores to [0, 1]
@@ -403,11 +490,14 @@ def __(
         except Exception as e:
             logger.error(f"Logistic regression scoring failed: {e}; using uniform fallback")
             df_impact["model_score"] = np.random.uniform(0, 1, len(df_impact))
+            scoring_fallback_used = True
     else:
         # Fallback: uniform random
         df_impact["model_score"] = np.random.uniform(0, 1, len(df_impact))
         logger.info("Using uniform random fallback for impact scores")
+        scoring_fallback_used = True
 
+    df_impact.attrs['scoring_fallback_used'] = scoring_fallback_used
     return df_impact
 
 
@@ -416,6 +506,28 @@ def __():
     """Import plotly for visualizations."""
     import plotly.graph_objects as go
     return go
+
+
+@app.cell
+def __(mo, df_impact):
+    """Check and display scoring fallback warning."""
+    fallback_used = df_impact.attrs.get('scoring_fallback_used', False)
+    
+    if fallback_used:
+        mo.md("""
+        ⚠️ **FALLBACK WARNING: Uniform Random Scores**
+        
+        Model scoring failed and fell back to uniform random sampling.
+        **These scores are NOT meaningful** and should not be used for downstream analysis.
+        
+        **What to do:**
+        1. Check the logging output above for error details
+        2. Verify that required feature columns are present
+        3. Switch to hand-mix mode and set weights manually
+        4. Re-run the scoring cell
+        """)
+    else:
+        mo.md("✅ **Scores computed successfully** using configured mode.")
 
 
 @app.cell
@@ -459,8 +571,38 @@ def __(mo):
         value="domain",
         label="Clustering Strategy"
     )
+    
+    threshold_factor = mo.ui.slider(
+        value=0.8,
+        start=0.5,
+        stop=1.0,
+        step=0.05,
+        label="Coverage Threshold Factor (τⱼ = factor × max_score)"
+    )
 
-    return clustering_widget
+    return clustering_widget, threshold_factor
+
+
+@app.cell
+def __(mo, threshold_factor):
+    """Explain coverage threshold rationale."""
+    mo.md(f"""
+    ### Coverage Threshold Rationale
+    
+    Each cluster receives a **coverage target threshold** τⱼ, computed as:
+    
+    **τⱼ = {threshold_factor.value} × max_score_in_cluster**
+    
+    **Interpretation:**
+    - **τⱼ** represents the score cutoff below which variants in a cluster are not considered for impact reporting
+    - **Higher factor** (e.g., 0.9): Stricter selection; only very high-scoring variants per cluster are reported
+    - **Lower factor** (e.g., 0.5): Relaxed selection; more moderate-scoring variants are captured
+    
+    **Alignment with optimization diagram:**
+    - The diagram (Step 5) shows τⱼ as per-cluster thresholds that feed into the coverage constraint
+    - Adjusting the slider lets you control the stringency of variant selection across all clusters simultaneously
+    - Current factor: **{threshold_factor.value}** → Most variants must score ≥80% of their cluster's maximum to be selected
+    """)
 
 
 @app.cell
@@ -507,7 +649,7 @@ def __(mo, df_clusters):
 @app.cell
 def __(
     pd, logger,
-    df_clusters
+    df_clusters, threshold_factor
 ):
     """Compute cluster coverage targets."""
     _cluster_targets = {}
@@ -528,16 +670,16 @@ def __(
             "n_variants": _n_total,
             "n_pathogenic": _n_pathogenic,
             "max_score": _max_score,
-            "tau_j": _max_score * 0.8,
+            "tau_j": _max_score * threshold_factor.value,
         }
 
-    logger.info(f"Computed coverage targets for {len(_cluster_targets)} clusters")
+    logger.info(f"Computed coverage targets for {len(_cluster_targets)} clusters with threshold factor {threshold_factor.value}")
 
     return _cluster_targets
 
 
 @app.cell
-def __(mo, pd, df_clusters):
+def __(mo, pd, df_clusters, threshold_factor):
     """Display cluster targets."""
     _cluster_targets_display = {}
 
@@ -556,7 +698,7 @@ def __(mo, pd, df_clusters):
             "n_variants": _n_tot,
             "n_pathogenic": _n_path,
             "max_score": _max_sc,
-            "tau_j": _max_sc * 0.8,
+            "tau_j": _max_sc * threshold_factor.value,
         }
 
     _targets_df = pd.DataFrame([
@@ -575,7 +717,7 @@ def __(mo, pd, df_clusters):
 
 @app.cell
 def __(
-    pd, df_clusters
+    pd, df_clusters, threshold_factor
 ):
     """Add cluster info and finalize."""
     df_final_scored = df_clusters.copy()
@@ -584,7 +726,7 @@ def __(
     _cluster_tgt_dict = {}
     for _cn, _cg in df_clusters.groupby("cluster"):
         _mx = _cg.get("model_score", pd.Series([0.0])).max()
-        _cluster_tgt_dict[_cn] = _mx * 0.8
+        _cluster_tgt_dict[_cn] = _mx * threshold_factor.value
 
     df_final_scored["cluster_target"] = df_final_scored["cluster"].map(
         lambda c: _cluster_tgt_dict.get(c, 0.5)
@@ -604,19 +746,37 @@ def __(
 
 
 @app.cell
-def __(mo, logger, df_final_scored, FEATURES_DIR):
-    """Confirm completion and save."""
+def __(mo, pd, logger, df_final_scored, FEATURES_DIR):
+    """Display final scored output path, schema, and summary."""
     _final_path_confirm = FEATURES_DIR / "variants_scored.parquet"
     df_final_scored.to_parquet(_final_path_confirm)
     logger.info(f"Wrote scored & clustered variants")
     
     mo.md(f"""
-✅ **Feature Engineering Complete!**
-
-Saved to: `{_final_path_confirm}`
-
-**Next Step:** Open `03_optimization_dashboard.py` for Strand optimization.
-""")
+    ✅ **Feature Engineering Complete!**
+    
+    **Output Path:** `{_final_path_confirm}`
+    
+    **Dataset Shape:** {df_final_scored.shape[0]} variants × {df_final_scored.shape[1]} columns
+    """)
+    
+    # Display schema/dtypes
+    mo.md("**Column Data Types:**")
+    final_schema_df = pd.DataFrame({
+        'Column': df_final_scored.columns,
+        'Data Type': df_final_scored.dtypes.astype(str)
+    }).reset_index(drop=True)
+    mo.ui.table(final_schema_df, show_data_types=False)
+    
+    # Show sample rows
+    mo.md("**Sample Data (first 3 rows):**")
+    mo.ui.table(df_final_scored.head(3), show_data_types=True)
+    
+    mo.md(f"""
+    ### Next Steps
+    
+    Open `03_optimization_dashboard.py` for Strand optimization.
+    """)
 
 
 if __name__ == "__main__":
