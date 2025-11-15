@@ -233,7 +233,7 @@ def __(
     _features_raw_path = FEATURES_DIR / "variants_features_raw.parquet"
     df_scored_step3.to_parquet(_features_raw_path)
     logger.info(f"Wrote raw features to {_features_raw_path}")
-    return _features_raw_path, FEATURES_DIR
+    return _features_raw_path
 
 
 @app.cell
@@ -241,12 +241,12 @@ def __(mo, pd, df_scored_step3, _features_raw_path):
     """Display raw features output path and schema."""
     mo.md(f"""
     ### ✅ Raw Features Saved
-    
+
     **Output Path:** `{_features_raw_path}`
-    
+
     **Dataset Shape:** {df_scored_step3.shape[0]} variants × {df_scored_step3.shape[1]} columns
     """)
-    
+
     # Display schema/dtypes
     mo.md("**Column Data Types:**")
     schema_df = pd.DataFrame({
@@ -254,7 +254,7 @@ def __(mo, pd, df_scored_step3, _features_raw_path):
         'Data Type': df_scored_step3.dtypes.astype(str)
     }).reset_index(drop=True)
     mo.ui.table(schema_df, show_data_types=False)
-    
+
     # Show sample rows
     mo.md("**Sample Data (first 3 rows):**")
     mo.ui.table(df_scored_step3.head(3), show_data_types=True)
