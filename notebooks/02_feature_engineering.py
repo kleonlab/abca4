@@ -174,10 +174,12 @@ def __(
     except Exception as e:
         logger.error(f"Failed to load regulatory features: {e}")
     
-    # Join all feature sources
+    # Join all feature sources (deduplicate first to avoid cartesian product)
     for df_features, join_key in feature_sources:
         if not df_features.empty and join_key in df_features.columns:
-            df_scored_step3 = df_scored_step3.merge(df_features, on=join_key, how='left', suffixes=('', '_feature'))
+            # Deduplicate to avoid duplicate rows during merge
+            df_features_dedup = df_features.drop_duplicates(subset=[join_key], keep='first')
+            df_scored_step3 = df_scored_step3.merge(df_features_dedup, on=join_key, how='left', suffixes=('', '_feature'))
     
     # Store column origin metadata for transparency
     df_scored_step3.attrs['feature_sources_metadata'] = {
@@ -230,19 +232,19 @@ def __(
     pd, df_scored_step3, logger, FEATURES_DIR
 ):
     """Save intermediate features."""
-    _features_raw_path = FEATURES_DIR / "variants_features_raw.parquet"
-    df_scored_step3.to_parquet(_features_raw_path)
-    logger.info(f"Wrote raw features to {_features_raw_path}")
-    return _features_raw_path
+    features_raw_path = FEATURES_DIR / "variants_features_raw.parquet"
+    df_scored_step3.to_parquet(features_raw_path)
+    logger.info(f"Wrote raw features to {features_raw_path}")
+    return features_raw_path
 
 
 @app.cell
-def __(mo, pd, df_scored_step3, _features_raw_path):
+def __(mo, pd, df_scored_step3, features_raw_path):
     """Display raw features output path and schema."""
     mo.md(f"""
     ### ✅ Raw Features Saved
 
-    **Output Path:** `{_features_raw_path}`
+    **Output Path:** `{features_raw_path}`
 
     **Dataset Shape:** {df_scored_step3.shape[0]} variants × {df_scored_step3.shape[1]} columns
     """)
@@ -452,7 +454,7 @@ def __(
 
         _alpha_norm = _normalize_score("alphamissense_score")
         _splice_norm = _normalize_score("spliceai_max_score")
-        _cons_norm = _normalize_score("phylop_score")
+        _cons_norm = _normalize_score("phyloP100way")
         _lof_norm = df_impact["lof_prior"].fillna(0.0)
 
         _total_wgt = (
