@@ -37,7 +37,7 @@ def __():
 @app.cell
 def __(mo, Path, logger, pd):
     """Define campaign paths and load annotated dataset."""
-    CAMPAIGN_ROOT = Path(__file__).resolve().parents[0]
+    CAMPAIGN_ROOT = Path(__file__).resolve().parents[1]
     ANNOTATIONS_DIR = CAMPAIGN_ROOT / "data_processed" / "annotations"
     FEATURES_DIR = CAMPAIGN_ROOT / "data_processed" / "features"
     FEATURES_DIR.mkdir(parents=True, exist_ok=True)
