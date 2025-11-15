@@ -15,6 +15,7 @@ dependencies = [
   "pysam>=0.23.3",
   "pyensembl>=2.2",
   "mlflow>=2.14",
+  "marimo[recommended]>=0.17.8",
 ]
 
 [project.optional-dependencies]

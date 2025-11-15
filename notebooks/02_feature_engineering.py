@@ -826,12 +826,18 @@ def __(mo, pd, df_clusters, threshold_factor):
 
 @app.cell
 def __(
-    pd, df_clusters, threshold_factor
+    pd, logger, df_clusters, threshold_factor
 ):
-    """Add cluster info and finalize."""
+    """Add cluster info and finalize with proper Step 5 structure."""
     df_final_scored = df_clusters.copy()
 
-    # Compute cluster targets inline
+    # Ensure cluster column exists and rename to cluster_id for clarity
+    if "cluster" not in df_final_scored.columns:
+        df_final_scored["cluster"] = "unknown"
+    
+    df_final_scored["cluster_id"] = df_final_scored["cluster"]
+
+    # Compute cluster targets inline (τⱼ = threshold_factor × max_score_in_cluster)
     _cluster_tgt_dict = {}
     for _cn, _cg in df_clusters.groupby("cluster"):
         _mx = _cg.get("model_score", pd.Series([0.0])).max()
@@ -840,7 +846,42 @@ def __(
     df_final_scored["cluster_target"] = df_final_scored["cluster"].map(
         lambda c: _cluster_tgt_dict.get(c, 0.5)
     )
+    
+    # Compute coverage_by_cluster: max(model_score) for each cluster in the full dataset
+    _coverage_dict = {}
+    for _cn, _cg in df_final_scored.groupby("cluster"):
+        _coverage_dict[_cn] = _cg["model_score"].max()
+    
+    df_final_scored["coverage_by_cluster"] = df_final_scored["cluster"].map(
+        lambda c: _coverage_dict.get(c, 0.0)
+    )
+    
+    # Summary log
+    logger.info(f"Step 5 Complete: {df_final_scored['cluster'].nunique()} clusters, "
+                f"model_score range [{df_final_scored['model_score'].min():.3f}, {df_final_scored['model_score'].max():.3f}]")
+    
     return df_final_scored
+
+
+@app.cell
+def __(mo, pd, df_final_scored):
+    """Display Step 5 clustering summary."""
+    mo.md("""
+    ### ✅ Step 5: Clustering & Coverage Complete
+    
+    **Cluster Structure:**
+    """)
+    
+    if "cluster_id" in df_final_scored.columns:
+        _cluster_summary = df_final_scored.groupby("cluster_id").agg({
+            "model_score": ["count", "max", "mean", "min"],
+            "cluster_target": "first",
+            "coverage_by_cluster": "first"
+        }).round(4)
+        _cluster_summary.columns = ["Variants", "Max Score", "Mean Score", "Min Score", "τⱼ Target", "cov_j(S)"]
+        mo.ui.table(_cluster_summary.reset_index())
+    else:
+        mo.md("⚠️ Cluster information not available")
 
 
 @app.cell
@@ -851,6 +892,12 @@ def __(
     _final_path = FEATURES_DIR / "variants_scored.parquet"
     df_final_scored.to_parquet(_final_path)
     logger.info(f"Wrote scored & clustered variants to {_final_path}")
+    
+    # Log clustering info
+    if "cluster_id" in df_final_scored.columns:
+        logger.info(f"Clusters: {df_final_scored['cluster_id'].nunique()}")
+        logger.info(f"Cluster sizes: {dict(df_final_scored['cluster_id'].value_counts())}")
+    
     return _final_path
 
 
