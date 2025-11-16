@@ -7,6 +7,10 @@ Run as dashboard:   marimo run notebooks/02_feature_engineering.py
 Run as script:      python notebooks/02_feature_engineering.py
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import marimo
 
 __generated_with = "0.17.8"

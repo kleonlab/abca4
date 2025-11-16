@@ -16,6 +16,10 @@ Run as dashboard:   marimo run notebooks/01_data_exploration.py
 Run as script:      python notebooks/01_data_exploration.py
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import marimo
 
 __generated_with = "0.17.8"

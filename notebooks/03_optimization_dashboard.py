@@ -10,6 +10,10 @@ Run as script:      python notebooks/03_optimization_dashboard.py
 Run autonomously:   python notebooks/03_optimization_dashboard.py --auto
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import marimo
 
 __generated_with = "0.17.8"
