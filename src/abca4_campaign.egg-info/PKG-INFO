@@ -15,6 +15,7 @@ Requires-Dist: pysam>=0.23.3
 Requires-Dist: pyensembl>=2.2
 Requires-Dist: mlflow>=2.14
 Requires-Dist: marimo[recommended]>=0.17.8
+Requires-Dist: plotly>=6.4.0
 Provides-Extra: interactive
 Requires-Dist: marimo>=0.17.8; extra == "interactive"
 Requires-Dist: plotly>=5.15.0; extra == "interactive"

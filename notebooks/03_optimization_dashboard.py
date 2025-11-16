@@ -125,6 +125,8 @@ def __(mo, df_scored_optim, AUTONOMOUS_MODE):
         k_optim = None
         strat_optim = None
         lambda_cov = None
+        iters_optim = None
+        pop_optim = None
     else:
         mo.md("### Optimization Parameters")
         
@@ -141,6 +143,8 @@ def __(mo, df_scored_optim, AUTONOMOUS_MODE):
             k_optim = _StaticControl(k_value)
             strat_optim = _StaticControl(strat_value)
             lambda_cov = _StaticControl(lambda_value)
+            iters_optim = _StaticControl(300)
+            pop_optim = _StaticControl(120)
             
             mo.md(f"**Autonomous Mode:** Using K={k_value}, Strategy={strat_value}, λ={lambda_value}")
         else:
@@ -151,7 +155,7 @@ def __(mo, df_scored_optim, AUTONOMOUS_MODE):
             )
 
             strat_optim = mo.ui.radio(
-                options=["Greedy coverage", "Top score", "Random"],
+                options=["Greedy coverage", "Top score", "Random", "CEM"],
                 value="Greedy coverage",
                 label="Strategy"
             )
@@ -160,20 +164,28 @@ def __(mo, df_scored_optim, AUTONOMOUS_MODE):
                 0.0, 2.0, value=0.6, step=0.05, label="Coverage penalty λ"
             )
 
-    return k_optim, strat_optim, lambda_cov
+            iters_optim = mo.ui.slider(
+                50, 2000, value=300, step=50, label="Iterations (CEM)"
+            )
+
+            pop_optim = mo.ui.slider(
+                20, 400, value=120, step=10, label="Population size (CEM)"
+            )
+
+    return k_optim, strat_optim, lambda_cov, iters_optim, pop_optim
 
 
 @app.cell
 def __(
     mo,
-    k_optim, strat_optim, lambda_cov
+    k_optim, strat_optim, lambda_cov, iters_optim, pop_optim
 ):
     """Echo chosen strategy and coverage penalty."""
     if strat_optim is None:
         mo.md("Select a strategy to proceed.")
         normalized_wgt_optim = None
     else:
-        mo.md(f"**Strategy:** {strat_optim.value if hasattr(strat_optim, 'value') else strat_optim}\n\n**Coverage λ:** {lambda_cov.value if lambda_cov else 0}")
+        mo.md(f"**Strategy:** {strat_optim.value if hasattr(strat_optim, 'value') else strat_optim}\n\n**Coverage λ:** {lambda_cov.value if lambda_cov else 0}\n\n**CEM iters/pop:** {iters_optim.value if iters_optim else '-'} / {pop_optim.value if pop_optim else '-'}")
         normalized_wgt_optim = None
 
 
@@ -193,7 +205,7 @@ def __(mo, AUTONOMOUS_MODE):
 def __(
     logger, pd, np,
     df_scored_optim,
-    k_optim, strat_optim, lambda_cov,
+    k_optim, strat_optim, lambda_cov, iters_optim, pop_optim,
     run_optim_btn, CAMPAIGN_ROOT
 ):
     """
@@ -207,6 +219,15 @@ def __(
         optim_results = None
     else:
         logger.info(f"Starting optimization: {strat_optim.value if strat_optim else 'Random'}")
+
+        def _reward(selected_idx, df, score_col, lambda_penalty, cluster_targets):
+            subset = df.loc[selected_idx]
+            total = float(subset[score_col].sum())
+            if cluster_targets:
+                cov = subset.groupby('cluster_id')[score_col].max().to_dict()
+                penalty = sum(max(0.0, cluster_targets.get(cid, 0.0) - cov.get(cid, 0.0)) for cid in cluster_targets)
+                return total - lambda_penalty * penalty
+            return total
 
         def _select_greedy(df: pd.DataFrame, k: int, lambda_penalty: float) -> pd.DataFrame:
             df_work = df.copy()
@@ -261,6 +282,59 @@ def __(
             df_sel['rank'] = range(1, len(df_sel) + 1)
             return df_sel
 
+        def _select_cem(df: pd.DataFrame, k: int, lambda_penalty: float, iters: int, pop: int) -> pd.DataFrame:
+            score_col = 'impact_score' if 'impact_score' in df.columns else 'model_score'
+            if score_col not in df.columns:
+                raise ValueError("No impact_score or model_score available for optimization")
+
+            # cluster targets
+            cluster_targets = {}
+            if 'cluster_id' in df.columns and 'cluster_target' in df.columns:
+                cluster_targets = (
+                    df[['cluster_id', 'cluster_target']]
+                    .dropna()
+                    .drop_duplicates('cluster_id')
+                    .set_index('cluster_id')['cluster_target']
+                    .to_dict()
+                )
+
+            n = len(df)
+            probs = np.ones(n) / n
+            elite_frac = 0.2
+            elite_size = max(1, int(pop * elite_frac))
+
+            best_idx = None
+            best_reward = -np.inf
+
+            for _ in range(iters):
+                samples = []
+                rewards = []
+                for _ in range(pop):
+                    idx = np.random.choice(n, size=k, replace=False, p=probs)
+                    r = _reward(idx, df, score_col, lambda_penalty, cluster_targets)
+                    samples.append(idx)
+                    rewards.append(r)
+
+                rewards = np.array(rewards)
+                elite_idx = rewards.argsort()[-elite_size:]
+                elite_samples = [samples[i] for i in elite_idx]
+
+                flat = np.concatenate(elite_samples)
+                counts = np.bincount(flat, minlength=n) + 1e-6  # laplace smoothing
+                probs = counts / counts.sum()
+
+                top_elite = elite_samples[-1]
+                top_reward = rewards[elite_idx][-1]
+                if top_reward > best_reward:
+                    best_reward = top_reward
+                    best_idx = top_elite
+
+            df_sel = df.iloc[best_idx].copy()
+            df_sel['optimization_score'] = df_sel[score_col]
+            df_sel['selected'] = True
+            df_sel['rank'] = range(1, len(df_sel) + 1)
+            return df_sel
+
         try:
             if strat_optim and strat_optim.value == "Top score":
                 score_col = 'impact_score' if 'impact_score' in df_scored_optim.columns else 'model_score'
@@ -278,6 +352,15 @@ def __(
                 sample['rank'] = range(1, len(sample) + 1)
                 optim_mode = "random"
                 _df_selected = sample
+            elif strat_optim and strat_optim.value == "CEM":
+                _df_selected = _select_cem(
+                    df_scored_optim,
+                    k_optim.value,
+                    lambda_cov.value if lambda_cov else 0.0,
+                    iters_optim.value if iters_optim else 300,
+                    pop_optim.value if pop_optim else 120,
+                )
+                optim_mode = "cem"
             else:
                 _df_selected = _select_greedy(df_scored_optim, k_optim.value, lambda_cov.value if lambda_cov else 0.0)
                 optim_mode = "greedy_coverage"
@@ -425,6 +508,11 @@ def __(
     else:
         df_mapped = optim_results['selected_variants'].copy()
 
+        # Compute cov_j(S) for the selected set
+        if 'cluster_id' in df_mapped.columns:
+            cov_s = df_mapped.groupby('cluster_id')['optimization_score'].max().to_dict()
+            df_mapped['cov_j_selected'] = df_mapped['cluster_id'].map(cov_s)
+
         # Find consequence column (may have various names)
         consequence_col = next((c for c in df_mapped.columns if 'consequence' in c.lower()), None)
         domain_col = next((c for c in df_mapped.columns if 'domain' in c.lower()), None)
@@ -471,7 +559,12 @@ def __(mo, df_mapped):
     if df_mapped is None or df_mapped.empty:
         mo.md("No optimization results yet.")
     else:
-        _display_cols = ["rank", "chrom", "pos", "ref", "alt", "vep_consequence", "mechanism", "suggested_assay"]
+        _display_cols = [
+            "rank", "chrom", "pos", "ref", "alt", "vep_consequence",
+            "impact_score", "model_score", "optimization_score",
+            "cluster_id", "coverage_by_cluster", "cov_j_selected",
+            "mechanism", "suggested_assay"
+        ]
         _avail_cols = [c for c in _display_cols if c in df_mapped.columns]
 
         mo.md("""
@@ -507,7 +600,9 @@ def __(
         json_export_path = REPORTS_DIR / "variants_selected.json"
         _json_data = df_mapped[[
             "rank", "chrom", "pos", "ref", "alt",
-            "vep_consequence", "mechanism", "suggested_assay"
+            "vep_consequence", "mechanism", "suggested_assay",
+            "impact_score", "model_score", "optimization_score",
+            "cluster_id", "coverage_by_cluster", "cov_j_selected"
         ]].to_dict(orient="records")
 
         with open(json_export_path, "w") as _f_json:
@@ -609,16 +704,22 @@ Curated selection of ABCA4 variants for functional validation.
 
 ## Selected Variants ({len(df_mapped)})
 
-| Rank | Variant | Consequence | Mechanism | Assay |
-|------|---------|-------------|-----------|-------|
+| Rank | Variant | Consequence | Impact | Model | Cluster | cov_j(S) | Assay |
+|------|---------|-------------|--------|-------|---------|----------|-------|
 """
         for _idx, _row in df_mapped.head(50).iterrows():
             _rank = _row.get("rank", _idx)
             _variant = f"{_row.get('chrom', '?')}:{_row.get('pos', '?')}:{_row.get('ref', '?')}/{_row.get('alt', '?')}"
-            _consequence = _row.get("vep_consequence", "?")
-            _mechanism = _row.get("mechanism", "?")
+            _consequence = _row.get("vep_consequence", _row.get("consequence", "?"))
+            _impact = _row.get("impact_score", np.nan)
+            _model = _row.get("model_score", np.nan)
+            _impact_str = f"{_impact:.3f}" if pd.notna(_impact) else "N/A"
+            _model_str = f"{_model:.3f}" if pd.notna(_model) else "N/A"
+            _cluster = _row.get("cluster_id", "?")
+            _cov = _row.get("cov_j_selected", _row.get("coverage_by_cluster", np.nan))
+            _cov_str = f"{_cov:.3f}" if pd.notna(_cov) else "N/A"
             _assay = _row.get("suggested_assay", "?")
-            report_md += f"\n| {_rank} | {_variant} | {_consequence} | {_mechanism} | {_assay} |"
+            report_md += f"\n| {_rank} | {_variant} | {_consequence} | {_impact_str} | {_model_str} | {_cluster} | {_cov_str} | {_assay} |"
 
         report_md += f"""
 
