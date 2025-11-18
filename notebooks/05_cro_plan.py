@@ -234,8 +234,8 @@ def __(tabs, mo, Path, pd):
             # Load index file
             index_path = ASSAY_DRAFTS_DIR / "assay_drafts_index.json"
             if index_path.exists():
-                with open(index_path, "r") as f:
-                    index_data = json.load(f)
+                with open(index_path, "r") as f3:
+                    index_data = json.load(f3)
 
                 mo.md("### Draft Generation Summary")
                 metadata = index_data.get("metadata", {})
@@ -269,8 +269,8 @@ def __(tabs, mo, Path, pd):
                                 'Status': f'❌ Failed: {draft.get("error", "Unknown")}'
                             })
 
-                    summary_df = pd.DataFrame(draft_summary)
-                    mo.table(summary_df, selection=None)
+                    summary_df2 = pd.DataFrame(draft_summary)
+                    mo.table(summary_df2, selection=None)
 
                     mo.md("""
                     ---
@@ -287,8 +287,8 @@ def __(tabs, mo, Path, pd):
                         if draft.get('status') == 'success':
                             draft_path = ASSAY_DRAFTS_DIR / "protocol_drafts" / draft.get('filename', '')
                             if draft_path.exists():
-                                with open(draft_path, "r") as f:
-                                    content = f.read()
+                                with open(draft_path, "r") as f2:
+                                    content = f2.read()
 
                                 with mo.expander(f"📄 {draft.get('variant_id')} - Rank {draft.get('rank')}"):
                                     mo.md(content)
