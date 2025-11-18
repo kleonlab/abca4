@@ -81,7 +81,7 @@ export LLM_MAX_VARIANTS="12"                # Max variants to process
 
 ### ⚡ Ready-to-Run Pipeline
 
-**This pipeline is production-ready!** All data is pre-processed and included, so you can start analyzing immediately:
+**This pipeline is production-ready!** Core ClinVar data is pre-processed and included, so you can start analyzing immediately. Additional datasets (gnomAD, SpliceAI, AlphaMissense) will be downloaded automatically as needed:
 
 ```bash
 # Run the complete analysis pipeline (takes ~20 seconds + LLM calls)
@@ -104,7 +104,12 @@ Run tasks from the repo root:
 invoke -l                        # list all available tasks
 
 # Data & feature pipeline
-invoke download-data             # fetch ClinVar/gnomAD/SpliceAI/AlphaMissense
+invoke download-data             # fetch ClinVar/gnomAD/SpliceAI/AlphaMissense (continues if some fail)
+# Individual downloads (if needed):
+# uv run python src/data/download_clinvar.py     # ClinVar only
+# uv run python src/data/download_gnomad.py      # gnomAD only
+# uv run python src/data/download_spliceai.py    # SpliceAI only
+# uv run python src/data/download_alphamissense.py # AlphaMissense only
 invoke run-pipeline              # execute full feature computation pipeline
 invoke run-optimization          # rank variants & log to MLflow
 invoke reporting.drafts          # generate LLM-powered assay drafts

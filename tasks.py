@@ -79,20 +79,34 @@ def download_data(c):
     (DATA_RAW / "spliceai").mkdir(exist_ok=True)
     (DATA_RAW / "alphamissense").mkdir(exist_ok=True)
 
+    downloads = [
+        ("ClinVar", SRC / "data" / "download_clinvar.py"),
+        ("gnomAD", SRC / "data" / "download_gnomad.py"),
+        ("SpliceAI", SRC / "data" / "download_spliceai.py"),
+        ("AlphaMissense", SRC / "data" / "download_alphamissense.py"),
+    ]
+
+    failed_downloads = []
+
     with c.cd(str(REPO_ROOT)):
-        print("🧬 Downloading ClinVar data...")
-        _run_script(c, SRC / "data" / "download_clinvar.py", "ClinVar download")
+        for name, script_path in downloads:
+            print(f"🧬 Downloading {name} data...")
+            try:
+                _run_script(c, script_path, f"{name} download")
+                print(f"✅ {name} download completed")
+            except Exception as e:
+                print(f"❌ {name} download failed: {e}")
+                failed_downloads.append(name)
 
-        print("🧬 Downloading gnomAD data...")
-        _run_script(c, SRC / "data" / "download_gnomad.py", "gnomAD download")
-
-        print("🧬 Downloading SpliceAI data...")
-        _run_script(c, SRC / "data" / "download_spliceai.py", "SpliceAI download")
-
-        print("🧬 Downloading AlphaMissense data...")
-        _run_script(c, SRC / "data" / "download_alphamissense.py", "AlphaMissense download")
-
-    print("✅ All datasets downloaded!")
+    if failed_downloads:
+        print(f"\n⚠️  Some downloads failed: {', '.join(failed_downloads)}")
+        print("💡 You can retry individual downloads:")
+        for name in failed_downloads:
+            script_name = name.lower().replace(" ", "_")
+            print(f"   uv run python src/data/download_{script_name}.py")
+        print("\n📊 Other downloads completed successfully!")
+    else:
+        print("✅ All datasets downloaded!")
 
 @task
 def process_variants(c):
