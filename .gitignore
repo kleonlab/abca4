@@ -13,8 +13,13 @@ venv/
 **/__marimo__/
 *.marimo
 
-# Data (large/unversioned)
-data_raw/                    # Raw external datasets
+# Data (large/unversioned) - dirs tracked with .gitkeep, files ignored
+data_raw/**                  # Raw external datasets
+!data_raw/**/.gitkeep        # Track directory structure
+data_processed/**            # Processed data files
+!data_processed/**/.gitkeep  # Track directory structure
+results/**                   # Results and outputs
+!results/**/.gitkeep         # Track directory structure
 
 # MLflow
 mlruns/
