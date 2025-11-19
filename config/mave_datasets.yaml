@@ -1,0 +1,65 @@
+---
+# MAVE datasets configuration for benchmark pipeline
+# These datasets are used to evaluate Strand's selection strategies
+
+datasets:
+  - dataset_id: "BRCA1_DBD_2018"
+    gene_name: "BRCA1"
+    mavedb_urn: "urn:mavedb:00000001"
+    description: "BRCA1 DBD - 2018"
+    raw_data_path: "data_raw/mave/mavedb-dump.20250612164404/csv/urn-mavedb-00000001-a-1.scores.csv"
+    assay_type: "saturation_mutagenesis"
+    raw_score_higher_is_better: false
+    normalization:
+      method: "zscore"
+      flip_sign: false
+    hit_definition:
+      method: "zscore_threshold"
+      threshold: -1.0
+      
+  - dataset_id: "TP53_DBD_2018"
+    gene_name: "TP53"
+    mavedb_urn: "urn:mavedb:00000009"
+    description: "TP53 DBD - 2018"
+    raw_data_path: "data_raw/mave/mavedb-dump.20250612164404/csv/urn-mavedb-00000002-a-1.scores.csv"
+    assay_type: "saturation_mutagenesis"
+    raw_score_higher_is_better: false
+    normalization:
+      method: "zscore"
+      flip_sign: false
+    hit_definition:
+      method: "zscore_threshold"
+      threshold: -1.0
+      
+  - dataset_id: "MLH1_2020"
+    gene_name: "MLH1"
+    mavedb_urn: "urn:mavedb:00000018"
+    description: "MLH1 - 2020"
+    raw_data_path: "data_raw/mave/mavedb-dump.20250612164404/csv/urn-mavedb-00000003-a-1.scores.csv"
+    assay_type: "saturation_mutagenesis"
+    raw_score_higher_is_better: false
+    normalization:
+      method: "zscore"
+      flip_sign: false
+    hit_definition:
+      method: "zscore_threshold"
+      threshold: -1.0
+
+# Pipeline configuration
+pipeline:
+  output_base: "data_processed/mave"
+  results_base: "results/mave"
+  
+  # Phases: ingest, normalize, features, eval, all
+  phases: ["ingest", "normalize", "features", "eval"]
+  
+  # Feature integration settings
+  features:
+    enabled: true
+    calculators: ["conservation", "missense", "regulatory", "splice"]
+    
+  # Evaluation settings
+  evaluation:
+    enabled: true
+    k_values: [10, 20, 30, 50]
+    strategies: ["strand", "random", "oracle"]
