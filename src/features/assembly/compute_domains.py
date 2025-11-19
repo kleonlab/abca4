@@ -221,7 +221,18 @@ class DomainMapper:
 
 def main():
     """Main entry point."""
-    mapper = DomainMapper()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Compute protein domain assignments for variants")
+    parser.add_argument(
+        "--gene",
+        type=str,
+        default="ABCA4",
+        help="Gene symbol (default: ABCA4)"
+    )
+    args = parser.parse_args()
+    
+    mapper = DomainMapper(gene_name=args.gene)
     success = mapper.run()
     sys.exit(0 if success else 1)
 

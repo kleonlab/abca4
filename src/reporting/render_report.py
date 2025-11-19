@@ -16,7 +16,6 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from ..config import REPORTS_DIR, logger
-from .generate_pdf import generate_compact_report_pdf
 
 
 CAMPAIGN_ROOT = Path(__file__).resolve().parents[2]

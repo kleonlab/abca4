@@ -154,16 +154,16 @@ def compute_features(c):
 
 @task
 def run_optimization(c):
-    """Run Strand optimization campaign"""
+    """Run Strand optimization campaign (notebook-based via marimo)"""
     print("🚀 Running optimization campaign...")
+    print("ℹ️  Optimization is run via: marimo edit notebooks/03_optimization_dashboard.py")
+    print("   This uses the VariantOptimizer class from src.reward.optimization")
+    
+    # Verify the optimization module can be imported
     with c.cd(str(REPO_ROOT)):
-        _run_script(
-            c,
-            SRC / "reward" / "run_abca4_optimization.py",
-            "optimization runner",
-        )
+        c.run("uv run python -c 'from src.reward.optimization import VariantOptimizer; print(\"✓ Optimization module ready\")'")
 
-    print("✅ Optimization complete!")
+    print("✅ Optimization module verified!")
 
 @task
 def assay_drafts(c):
