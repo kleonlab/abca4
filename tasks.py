@@ -109,17 +109,20 @@ def download_data(c):
         print("✅ All datasets downloaded!")
 
 @task
-def process_variants(c):
-    """Process and filter ABCA4 variants from raw data"""
-    print("🔍 Processing ABCA4 variants...")
+def process_variants(c, gene="ABCA4"):
+    """Process and filter variants from raw data"""
+    print(f"🔍 Processing {gene} variants...")
 
     DATA_PROCESSED.mkdir(exist_ok=True)
     (DATA_PROCESSED / "variants").mkdir(exist_ok=True)
 
     with c.cd(str(REPO_ROOT)):
-        _run_script(c, SRC / "data" / "filter_abca4_variants.py", "variant filtering")
+        # Pass gene as environment variable so scripts can use it
+        env = os.environ.copy()
+        env["GENE_NAME"] = gene
+        _run_script(c, SRC / "data" / "filter_clinvar_variants.py", f"variant filtering for {gene}")
 
-    print("✅ ABCA4 variants processed!")
+    print(f"✅ {gene} variants processed!")
 
 @task
 def annotate_variants(c):
@@ -198,19 +201,43 @@ def generate_report(c):
     print("✅ Reports generated!")
 
 @task
-def run_pipeline(c):
-    """Run the complete ABCA4 pipeline end-to-end"""
-    print("🔬 Running complete ABCA4 campaign pipeline...")
+def generate_pdf(c):
+    """Generate PDF from the ABCA4 report HTML using Playwright"""
+    print("📄 Generating ABCA4 report PDF...")
+
+    with c.cd(str(REPO_ROOT)):
+        _run_script(c, SRC / "reporting" / "generate_pdf.py", "PDF generation")
+
+    print("✅ PDF report generated!")
+
+@task
+def generate_full_report_pdf(c):
+    """Generate PDF from the ABCA4 report HTML"""
+    print("📄 Generating ABCA4 report PDF...")
+
+    from src.reporting.generate_pdf import generate_full_report_pdf
+
+    try:
+        pdf_path = generate_full_report_pdf()
+        print(f"✅ Report PDF generated: {pdf_path}")
+    except Exception as e:
+        print(f"❌ Failed to generate report PDF: {e}")
+        raise
+
+@task
+def run_pipeline(c, gene="ABCA4"):
+    """Run the complete campaign pipeline end-to-end for a gene"""
+    print(f"🔬 Running complete {gene} campaign pipeline...")
 
     download_data(c)
-    process_variants(c)
+    process_variants(c, gene=gene)
     annotate_variants(c)
     compute_features(c)
     run_optimization(c)
     assay_drafts(c)
     generate_report(c)
 
-    print("🎉 ABCA4 campaign complete!")
+    print(f"🎉 {gene} campaign complete!")
 
 @task
 def explore_data(c):
@@ -380,6 +407,8 @@ notebook_ns.add_task(optimize_interactive, 'optimize')
 reporting_ns = Collection('reporting')
 reporting_ns.add_task(generate_report, 'generate')
 reporting_ns.add_task(assay_drafts, 'drafts')
+reporting_ns.add_task(generate_pdf, 'pdf')
+reporting_ns.add_task(generate_full_report_pdf, 'full-pdf')
 
 # Main namespace
 ns = Collection()

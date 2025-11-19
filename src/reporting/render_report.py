@@ -16,6 +16,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from ..config import REPORTS_DIR, logger
+from .generate_pdf import generate_compact_report_pdf
 
 
 CAMPAIGN_ROOT = Path(__file__).resolve().parents[2]
@@ -68,6 +69,15 @@ def main() -> None:
     )
     manifest = _load_manifest()
     render_html_report(manifest)
+
+    # Generate PDF from the HTML report
+    try:
+        from .generate_pdf import generate_full_report_pdf
+        pdf_path = generate_full_report_pdf()
+        logger.info("Generated PDF report: %s", pdf_path)
+    except Exception as exc:
+        logger.error("Failed to generate PDF: %s", exc)
+        # Don't fail the entire process if PDF generation fails
 
 
 if __name__ == "__main__":

@@ -192,13 +192,13 @@ def __(
     uploaded_file, CAMPAIGN_ROOT
 ):
     """
-    Load ABCA4 variants using the authoritative filter_abca4_variants.py pipeline.
+    Load gene variants using the ClinVar filtering pipeline.
     
     This cell invokes the real data processing pipeline rather than truncating TSV
     or creating synthetic rows.
     """
     sys.path.insert(0, str(CAMPAIGN_ROOT))
-    from src.data.filter_abca4_variants import ABCA4VariantFilter
+    from src.data.filter_clinvar_variants import ClinVarVariantFilter
     
     variants_source = "unknown"
 

@@ -156,3 +156,117 @@ def standardize_conservation_columns(df: pd.DataFrame) -> pd.DataFrame:
 def setup_logging():
     """Get a configured logger instance."""
     return logging.getLogger(__name__)
+
+
+# ============================================================================
+# Gene-Specific Configuration Management
+# ============================================================================
+
+def load_gene_config(gene_name: str) -> Dict[str, Any]:
+    """
+    Load gene configuration from YAML file.
+    
+    Args:
+        gene_name: Gene symbol (e.g., "ABCA4", "CFTR")
+        
+    Returns:
+        Dictionary containing all gene-specific settings
+        
+    Raises:
+        FileNotFoundError: If config file for gene does not exist
+        ValueError: If config file is invalid or missing required fields
+    """
+    config_dir = CAMPAIGN_ROOT / "config"
+    config_path = config_dir / f"{gene_name.lower()}.yaml"
+    
+    if not config_path.exists():
+        raise FileNotFoundError(
+            f"Gene configuration not found: {config_path}\n"
+            f"Available config directory: {config_dir}\n"
+            f"Please create {config_path} with gene-specific settings."
+        )
+    
+    try:
+        import yaml
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+    except Exception as e:
+        raise ValueError(
+            f"Failed to parse YAML config for {gene_name}: {e}\n"
+            f"Config file: {config_path}"
+        )
+    
+    if not isinstance(config, dict):
+        raise ValueError(
+            f"Invalid config format for {gene_name}: expected dict, got {type(config)}\n"
+            f"Config file: {config_path}"
+        )
+    
+    # Validate required top-level fields
+    required_fields = ['gene_name', 'mode', 'features']
+    missing_fields = [f for f in required_fields if f not in config]
+    if missing_fields:
+        raise ValueError(
+            f"Gene config missing required fields: {missing_fields}\n"
+            f"Config file: {config_path}"
+        )
+    
+    logger.info(f"Loaded configuration for {config['gene_name']}")
+    return config
+
+
+def get_gene_config(gene_name: str, cache: Optional[Dict] = None) -> Dict[str, Any]:
+    """
+    Load or retrieve cached gene configuration.
+    
+    Args:
+        gene_name: Gene symbol
+        cache: Optional cache dict to store/retrieve configs
+        
+    Returns:
+        Gene configuration dictionary
+    """
+    if cache is not None and gene_name in cache:
+        return cache[gene_name]
+    
+    config = load_gene_config(gene_name)
+    
+    if cache is not None:
+        cache[gene_name] = config
+    
+    return config
+
+
+def validate_config_for_mode(config: Dict[str, Any]) -> bool:
+    """
+    Validate that config has required fields for its mode.
+    
+    Args:
+        config: Gene configuration dictionary
+        
+    Returns:
+        True if valid, False otherwise
+    """
+    mode = config.get('mode', 'clinvar')
+    
+    if mode == 'clinvar':
+        required_clinvar = ['domains', 'scoring_weights', 'clustering', 'selection']
+        missing = [f for f in required_clinvar if f not in config]
+        if missing:
+            logger.warning(
+                f"ClinVar mode config missing fields: {missing}\n"
+                f"Gene: {config.get('gene_name', 'unknown')}"
+            )
+            return False
+    
+    elif mode == 'mave':
+        required_mave = ['scoring_weights', 'clustering', 'selection']
+        missing = [f for f in required_mave if f not in config]
+        if missing:
+            logger.warning(
+                f"MAVE mode config missing fields: {missing}\n"
+                f"Gene: {config.get('gene_name', 'unknown')}"
+            )
+            return False
+    
+    return True

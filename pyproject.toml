@@ -20,6 +20,7 @@ dependencies = [
   "jinja2>=3.1.0",
   "invoke>=2.2.0",
   "groq>=0.4.1",
+  "playwright>=1.56.0",
 ]
 
 [project.optional-dependencies]

@@ -32,7 +32,7 @@ def __():
     import pandas as pd
     from src.config import logger
     from src.reward.optimization import VariantOptimizer
-    from src.features.docs import PipelineDocs
+    from src.features.engineering.docs import PipelineDocs
     return mo, pd, logger, VariantOptimizer, PipelineDocs
 
 
